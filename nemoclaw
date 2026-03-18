@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_PATH="$0"
+while [ -L "$SCRIPT_PATH" ]; do
+  SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
+  LINK_TARGET="$(readlink "$SCRIPT_PATH")"
+  case "$LINK_TARGET" in
+    /*) SCRIPT_PATH="$LINK_TARGET" ;;
+    *) SCRIPT_PATH="$SCRIPT_DIR/$LINK_TARGET" ;;
+  esac
+done
+
+ROOT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
+NEMOCLAW_DIR="$ROOT_DIR/NemoClaw-src"
+
+if [ ! -e "$NEMOCLAW_DIR" ]; then
+  echo "NemoClaw is not available at $NEMOCLAW_DIR" >&2
+  exit 1
+fi
+
+export PATH="$HOME/.local/bin:$PATH"
+
+exec node "$NEMOCLAW_DIR/bin/nemoclaw.js" "$@"

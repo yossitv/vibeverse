@@ -50,7 +50,7 @@ Stop with `Ctrl+C`.
 
 ```bash
 # Backend API
-python3 -m backend.api.server --host 127.0.0.1 --port 8000
+python3 -m backend.api.server --host 127.0.0.1 --port 8000 --nemoclaw-sandbox my-assistant
 
 # MCP Server (stdio)
 cd mcp && python server.py
@@ -68,3 +68,13 @@ cd mcp && fastmcp run server.py:mcp --transport http --port 8001
 | `tag_asset` | Add metadata tags to a job's asset |
 | `export_for_roblox` | Optimize and export for Roblox Studio |
 | `get_job_status` | Check pipeline job status |
+
+## NemoClaw Request Example
+
+If `my-assistant` is running through NemoClaw, the backend can forward a request to it:
+
+```bash
+curl -sS http://127.0.0.1:8000/api/jobs \
+  -H 'Content-Type: application/json' \
+  -d '{"prompt":"say hello from NemoClaw","processor":"nemoclaw","sandbox_name":"my-assistant"}'
+```

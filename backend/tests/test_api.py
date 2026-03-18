@@ -12,10 +12,32 @@ from urllib.request import Request, urlopen
 from backend.api.server import create_server
 
 
+class FakeNemoClawExecutor:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, str]] = []
+
+    def run(self, prompt: str, session_id: str, sandbox_name: str) -> str:
+        self.calls.append(
+            {
+                "prompt": prompt,
+                "session_id": session_id,
+                "sandbox_name": sandbox_name,
+            }
+        )
+        return f"NemoClaw processed: {prompt}"
+
+
 class BackendAPITestCase(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
-        self.server = create_server(self.temp_dir.name, port=0, step_delay=0.01)
+        self.fake_nemoclaw = FakeNemoClawExecutor()
+        self.server = create_server(
+            self.temp_dir.name,
+            port=0,
+            step_delay=0.01,
+            nemoclaw_default_sandbox="test-assistant",
+            nemoclaw_executor=self.fake_nemoclaw,
+        )
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
         self.base_url = f"http://127.0.0.1:{self.server.server_port}"
@@ -50,11 +72,47 @@ class BackendAPITestCase(unittest.TestCase):
         chat = self._request_json("GET", f"/api/jobs/{job_id}/chat")
         self.assertGreaterEqual(len(chat["messages"]), 2)
 
+    def test_create_nemoclaw_job_and_capture_response(self) -> None:
+        created = self._request_json(
+            "POST",
+            "/api/jobs",
+            {
+                "prompt": "say hello from NemoClaw",
+                "processor": "nemoclaw",
+                "sandbox_name": "my-assistant",
+            },
+            expected_status=202,
+        )
+
+        self.assertEqual(created["job"]["processor"], "nemoclaw")
+        job_id = created["job"]["job_id"]
+        completed = self._wait_for_status(job_id, "completed")
+        self.assertEqual(completed["processor"], "nemoclaw")
+
+        chat = self._request_json("GET", f"/api/jobs/{job_id}/chat")
+        self.assertEqual(chat["assistant"]["sandbox_name"], "my-assistant")
+        self.assertEqual(chat["assistant"]["response"], "NemoClaw processed: say hello from NemoClaw")
+        self.assertTrue(
+            any(message["content"] == "NemoClaw processed: say hello from NemoClaw" for message in chat["messages"])
+        )
+
+        self.assertEqual(len(self.fake_nemoclaw.calls), 1)
+        self.assertEqual(self.fake_nemoclaw.calls[0]["sandbox_name"], "my-assistant")
+
     def test_rejects_empty_prompt(self) -> None:
         response = self._request_json(
             "POST",
             "/api/jobs",
             {"prompt": "   "},
+            expected_status=400,
+        )
+        self.assertIn("error", response)
+
+    def test_rejects_unknown_processor(self) -> None:
+        response = self._request_json(
+            "POST",
+            "/api/jobs",
+            {"prompt": "hello", "processor": "unknown"},
             expected_status=400,
         )
         self.assertIn("error", response)

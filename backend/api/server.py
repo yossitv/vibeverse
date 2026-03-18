@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+from backend.services.nemoclaw import NemoClawExecutor, NemoClawJobRunner
 from backend.services.pipeline import DemoPipelineRunner
 from backend.services.storage import LocalJobStore
 
@@ -15,6 +16,7 @@ from backend.services.storage import LocalJobStore
 def build_handler(
     store: LocalJobStore,
     pipeline: DemoPipelineRunner,
+    assistant_runner: NemoClawJobRunner,
 ) -> type[BaseHTTPRequestHandler]:
     class VibeVerseRequestHandler(BaseHTTPRequestHandler):
         server_version = "VibeVerseHTTP/0.1"
@@ -46,6 +48,7 @@ def build_handler(
                         job = store.get_job(job_id)
                         payload = {
                             "job_id": job["job_id"],
+                            "processor": job.get("processor", "demo"),
                             "status": job["status"],
                             "updated_at": job["updated_at"],
                             "error": job["error"],
@@ -57,8 +60,10 @@ def build_handler(
                         job = store.get_job(job_id)
                         payload = {
                             "job_id": job["job_id"],
+                            "processor": job.get("processor", "demo"),
                             "status": job["status"],
                             "messages": job["messages"],
+                            "assistant": job.get("assistant", {}),
                         }
                         self._send_json(HTTPStatus.OK, payload)
                         return
@@ -66,9 +71,11 @@ def build_handler(
                         job = store.get_job(job_id)
                         payload = {
                             "job_id": job["job_id"],
+                            "processor": job.get("processor", "demo"),
                             "status": job["status"],
                             "asset": job["asset"],
                             "paths": job["paths"],
+                            "assistant": job.get("assistant", {}),
                         }
                         self._send_json(HTTPStatus.OK, payload)
                         return
@@ -87,11 +94,29 @@ def build_handler(
                 if parts == ["api", "jobs"]:
                     payload = self._read_json()
                     prompt = str(payload.get("prompt", "")).strip()
+                    processor = str(payload.get("processor", "demo")).strip().lower()
+                    sandbox_name = str(payload.get("sandbox_name", "")).strip() or None
+                    assistant_session_id = str(payload.get("assistant_session_id", "")).strip() or None
                     if not prompt:
                         self._send_error_json(HTTPStatus.BAD_REQUEST, "Field 'prompt' is required.")
                         return
-                    job = store.create_job(prompt)
-                    pipeline.run_async(job["job_id"])
+                    if processor not in {"demo", "nemoclaw"}:
+                        self._send_error_json(
+                            HTTPStatus.BAD_REQUEST,
+                            "Field 'processor' must be either 'demo' or 'nemoclaw'.",
+                        )
+                        return
+
+                    job = store.create_job(
+                        prompt,
+                        processor=processor,
+                        sandbox_name=sandbox_name,
+                        assistant_session_id=assistant_session_id,
+                    )
+                    if processor == "nemoclaw":
+                        assistant_runner.run_async(job["job_id"])
+                    else:
+                        pipeline.run_async(job["job_id"])
                     self._send_json(
                         HTTPStatus.ACCEPTED,
                         {
@@ -154,10 +179,17 @@ def create_server(
     host: str = "127.0.0.1",
     port: int = 8000,
     step_delay: float = 0.15,
+    nemoclaw_default_sandbox: str = "my-assistant",
+    nemoclaw_executor: NemoClawExecutor | None = None,
 ) -> ThreadingHTTPServer:
     store = LocalJobStore(root_dir)
     pipeline = DemoPipelineRunner(store, step_delay=step_delay)
-    handler = build_handler(store, pipeline)
+    assistant_runner = NemoClawJobRunner(
+        store,
+        executor=nemoclaw_executor or NemoClawExecutor(),
+        default_sandbox_name=nemoclaw_default_sandbox,
+    )
+    handler = build_handler(store, pipeline, assistant_runner)
     server = ThreadingHTTPServer((host, port), handler)
     server.daemon_threads = True
     return server
@@ -168,13 +200,23 @@ def main() -> None:
     parser.add_argument("--host", default="127.0.0.1", help="Host to bind.")
     parser.add_argument("--port", type=int, default=8000, help="Port to bind.")
     parser.add_argument(
+        "--nemoclaw-sandbox",
+        default="my-assistant",
+        help="Default NemoClaw sandbox name used for processor=nemoclaw requests.",
+    )
+    parser.add_argument(
         "--root-dir",
         default=str(Path(__file__).resolve().parents[2]),
         help="Repository root directory.",
     )
     args = parser.parse_args()
 
-    server = create_server(root_dir=args.root_dir, host=args.host, port=args.port)
+    server = create_server(
+        root_dir=args.root_dir,
+        host=args.host,
+        port=args.port,
+        nemoclaw_default_sandbox=args.nemoclaw_sandbox,
+    )
     print(f"VibeVerse backend API listening on http://{args.host}:{args.port}")
     try:
         server.serve_forever()

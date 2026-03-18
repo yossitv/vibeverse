@@ -56,13 +56,20 @@ class LocalJobStore:
         if not self.assets_index_file.exists():
             self._write_json(self.assets_index_file, [])
 
-    def create_job(self, prompt: str) -> dict[str, Any]:
+    def create_job(
+        self,
+        prompt: str,
+        processor: str = "demo",
+        sandbox_name: str | None = None,
+        assistant_session_id: str | None = None,
+    ) -> dict[str, Any]:
         base_id = secrets.token_hex(6)
         job_id = f"job_{base_id}"
         session_id = f"sess_{base_id}"
         asset_id = f"asset_{base_id}"
         asset_dir = self.assets_dir / asset_id
         asset_dir.mkdir(parents=True, exist_ok=True)
+        resolved_assistant_session_id = assistant_session_id or session_id
 
         created_at = utc_now()
         job = {
@@ -71,6 +78,7 @@ class LocalJobStore:
             "asset_id": asset_id,
             "project": self.project,
             "prompt": prompt,
+            "processor": processor,
             "status": "queued",
             "created_at": created_at,
             "updated_at": created_at,
@@ -98,6 +106,11 @@ class LocalJobStore:
                     "placed_at": None,
                 },
             },
+            "assistant": {
+                "sandbox_name": sandbox_name,
+                "session_id": resolved_assistant_session_id,
+                "response": None,
+            },
             "events": [],
             "messages": [
                 {
@@ -109,7 +122,10 @@ class LocalJobStore:
         }
 
         append_event(job, "queued", "request_created", "Job created and queued.")
-        append_assistant_message(job, "Job queued. Waiting to start the asset pipeline.")
+        if processor == "nemoclaw":
+            append_assistant_message(job, "Job queued. Waiting to send the request to NemoClaw.")
+        else:
+            append_assistant_message(job, "Job queued. Waiting to start the asset pipeline.")
 
         with self._lock:
             self._write_json(self._job_record_path(job_id), job)
@@ -174,6 +190,7 @@ class LocalJobStore:
             "session_id": job["session_id"],
             "asset_id": job["asset_id"],
             "prompt": job["prompt"],
+            "processor": job.get("processor", "demo"),
             "status": job["status"],
             "created_at": job["created_at"],
             "updated_at": job["updated_at"],
@@ -195,6 +212,7 @@ class LocalJobStore:
             "asset_id": job["asset_id"],
             "job_id": job["job_id"],
             "prompt": job["prompt"],
+            "processor": job.get("processor", "demo"),
             "status": job["status"],
             "created_at": job["created_at"],
             "updated_at": job["updated_at"],
@@ -214,11 +232,13 @@ class LocalJobStore:
             "job_id": job["job_id"],
             "project": job["project"],
             "prompt": job["prompt"],
+            "processor": job.get("processor", "demo"),
             "created_at": job["created_at"],
             "updated_at": job["updated_at"],
             "status": job["status"],
             "tags": job["asset"]["tags"],
             "placement": job["asset"]["placement"],
+            "assistant": job.get("assistant", {}),
             "generated_file_paths": {
                 "candidate_images": job["paths"]["candidate_images"],
                 "model_path": job["paths"]["model_path"],

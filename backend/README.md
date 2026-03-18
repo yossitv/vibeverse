@@ -9,6 +9,7 @@
 - チャット / 処理ログ取得 API
 - 生成アセット情報取得 API
 - ローカル JSON への保存
+- NemoClaw assistant request forwarding
 - 擬似パイプライン
   - `generate_candidates`
   - `convert_to_3d`
@@ -20,7 +21,7 @@
 リポジトリルートで実行します。
 
 ```bash
-python3 -m backend.api.server --host 127.0.0.1 --port 8000
+python3 -m backend.api.server --host 127.0.0.1 --port 8000 --nemoclaw-sandbox my-assistant
 ```
 
 ## エンドポイント
@@ -42,6 +43,14 @@ python3 -m backend.api.server --host 127.0.0.1 --port 8000
 curl -sS http://127.0.0.1:8000/api/jobs \
   -H 'Content-Type: application/json' \
   -d '{"prompt":"create an Nvidia-themed event prop for Roblox"}'
+```
+
+NemoClaw assistant request:
+
+```bash
+curl -sS http://127.0.0.1:8000/api/jobs \
+  -H 'Content-Type: application/json' \
+  -d '{"prompt":"say hello from NemoClaw","processor":"nemoclaw","sandbox_name":"my-assistant"}'
 ```
 
 状態確認:
@@ -74,4 +83,6 @@ curl -sS -X POST http://127.0.0.1:8000/api/jobs/<job_id>/placed
 - 生成アセット: `backend/jobs/projects/gtc_event_assets/assets/`
 - アセット一覧: `backend/jobs/projects/gtc_event_assets/assets.json`
 
-各ジョブは `queued -> running -> image_generated -> converted_to_3d -> optimized -> exported -> placed` の順で進みます。
+`processor=demo` のジョブは `queued -> running -> image_generated -> converted_to_3d -> optimized -> exported -> placed` の順で進みます。
+
+`processor=nemoclaw` のジョブは `queued -> running -> completed` の順で進み、応答本文は `GET /api/jobs/{job_id}/chat` の `messages` と `assistant.response` で取得できます。
