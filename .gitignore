@@ -22,3 +22,10 @@ tmp
 /training/models/*.json
 form.md
 assistants
+backend/jobs/sessions/*.json
+backend/jobs/projects/gtc_event_assets/assets/*
+!backend/jobs/projects/gtc_event_assets/assets/.gitkeep
+backend/jobs/projects/gtc_event_assets/assets.json
+mcp/storage/sessions/*.json
+mcp/storage/assets/*
+!mcp/storage/assets/.gitkeep
