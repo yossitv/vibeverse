@@ -5,29 +5,30 @@ ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
 MCP_DIR="$ROOT_DIR/mcp"
 VENV_DIR="$ROOT_DIR/.venv"
 ENV_FILE="$ROOT_DIR/.env"
+SESSION="vibeverse"
 
 # ---------- Colors ----------
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 CYAN='\033[0;36m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
 log()  { echo -e "${CYAN}[vibeverse]${NC} $*"; }
 ok()   { echo -e "${GREEN}[vibeverse]${NC} $*"; }
 err()  { echo -e "${RED}[vibeverse]${NC} $*" >&2; }
 
 # ---------- Preflight checks ----------
+if ! command -v tmux &>/dev/null; then
+  err "tmux is required. Install with: brew install tmux"
+  exit 1
+fi
+
 if [ ! -f "$ENV_FILE" ]; then
   err ".env not found at $ENV_FILE"
   err "Copy the example and fill in your keys:"
   err "  cp .env.example .env"
   exit 1
 fi
-
-# Export .env so both backend and MCP pick up the keys
-set -a
-source "$ENV_FILE"
-set +a
 
 # ---------- Virtual environment ----------
 if [ ! -d "$VENV_DIR" ]; then
@@ -38,39 +39,34 @@ fi
 
 PYTHON="$VENV_DIR/bin/python"
 
-# ---------- Cleanup on exit ----------
-PIDS=()
-cleanup() {
-  log "Shutting down..."
-  for pid in "${PIDS[@]}"; do
-    kill "$pid" 2>/dev/null || true
-  done
-  wait 2>/dev/null || true
-  ok "All services stopped."
-}
-trap cleanup EXIT INT TERM
+# ---------- Kill existing session if any ----------
+if tmux has-session -t "$SESSION" 2>/dev/null; then
+  log "Killing existing '$SESSION' session..."
+  tmux kill-session -t "$SESSION"
+fi
 
-# ---------- Start Backend API ----------
-log "Starting backend API on http://127.0.0.1:8000 ..."
-cd "$ROOT_DIR"
-$PYTHON -m backend.api.server --host 127.0.0.1 --port 8000 &
-PIDS+=($!)
+# ---------- Build env export string for tmux ----------
+ENV_EXPORT="set -a; source $ENV_FILE; set +a"
 
-# ---------- Start MCP Server (HTTP) ----------
-log "Starting MCP server on http://127.0.0.1:8001 ..."
-cd "$MCP_DIR"
-$PYTHON -c "
-from server import mcp
-mcp.run(transport='http', host='127.0.0.1', port=8001)
-" &
-PIDS+=($!)
+# ---------- Create tmux session with backend ----------
+log "Starting tmux session '$SESSION'..."
 
-# ---------- Ready ----------
-sleep 1
+tmux new-session -d -s "$SESSION" -n backend \
+  "$ENV_EXPORT; cd $ROOT_DIR; $PYTHON -m backend.api.server --host 127.0.0.1 --port 8000; read"
+
+# ---------- Add MCP window ----------
+tmux new-window -t "$SESSION" -n mcp \
+  "$ENV_EXPORT; cd $MCP_DIR; $PYTHON -c \"from server import mcp; mcp.run(transport='http', host='127.0.0.1', port=8001)\"; read"
+
+# ---------- Done ----------
 ok "========================================="
-ok "  Backend API : http://127.0.0.1:8000"
-ok "  MCP Server  : http://127.0.0.1:8001"
+ok "  tmux session : $SESSION"
+ok "  backend      : http://127.0.0.1:8000  (window 0)"
+ok "  mcp          : http://127.0.0.1:8001  (window 1)"
 ok "========================================="
-ok "Press Ctrl+C to stop all services."
-
-wait
+ok ""
+ok "Commands:"
+ok "  tmux attach -t $SESSION        # attach to session"
+ok "  tmux select-window -t ${SESSION}:backend  # switch to backend"
+ok "  tmux select-window -t ${SESSION}:mcp      # switch to mcp"
+ok "  tmux kill-session -t $SESSION  # stop all"
