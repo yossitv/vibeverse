@@ -9,8 +9,13 @@ Run:
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
+from dotenv import load_dotenv
 from fastmcp import FastMCP
+
+# Load .env from the project root
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 from tools import job_manager, image_gen, convert_3d, optimize, export_roblox
 
