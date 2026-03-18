@@ -228,10 +228,16 @@ local widget = widgetFactory(plugin, "VibeVerseDockWidget", widgetInfo)
 widget.Title = "VibeVerse"
 widget.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 
-local root = Instance.new("Frame")
+local root = Instance.new("ScrollingFrame")
 root.Name = "Root"
+root.Active = true
+root.AutomaticCanvasSize = Enum.AutomaticSize.None
 root.BackgroundColor3 = Color3.fromRGB(20, 22, 28)
 root.BorderSizePixel = 0
+root.CanvasSize = UDim2.new(0, 0, 0, 0)
+root.ScrollBarImageColor3 = Color3.fromRGB(82, 91, 111)
+root.ScrollBarThickness = 6
+root.ScrollingDirection = Enum.ScrollingDirection.Y
 root.Size = UDim2.fromScale(1, 1)
 root.Parent = widget
 
@@ -351,27 +357,23 @@ createLabel(feedSection, "FeedHint", "User prompts, assistant replies, and pipel
 local feedFrame = Instance.new("ScrollingFrame")
 feedFrame.Name = "Feed"
 feedFrame.Active = true
-feedFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
+feedFrame.AutomaticCanvasSize = Enum.AutomaticSize.None
 feedFrame.BackgroundColor3 = Color3.fromRGB(24, 27, 34)
 feedFrame.BorderSizePixel = 0
 feedFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
 feedFrame.ScrollBarImageColor3 = Color3.fromRGB(82, 91, 111)
+feedFrame.ScrollBarThickness = 6
+feedFrame.ScrollingDirection = Enum.ScrollingDirection.Y
+feedFrame.ScrollingEnabled = true
 feedFrame.Size = UDim2.new(1, 0, 0, 240)
 feedFrame.Parent = feedSection
 createCorner(feedFrame, 10)
-
-local feedContent = Instance.new("Frame")
-feedContent.Name = "Content"
-feedContent.BackgroundTransparency = 1
-feedContent.AutomaticSize = Enum.AutomaticSize.Y
-feedContent.Size = UDim2.new(1, -12, 0, 0)
-feedContent.Position = UDim2.new(0, 6, 0, 6)
-feedContent.Parent = feedFrame
+createPadding(feedFrame, 6, 6, 6, 6)
 
 local feedLayout = Instance.new("UIListLayout")
 feedLayout.Padding = UDim.new(0, 8)
 feedLayout.SortOrder = Enum.SortOrder.LayoutOrder
-feedLayout.Parent = feedContent
+feedLayout.Parent = feedFrame
 
 local currentBaseUrl = normalizeBaseUrl(urlBox.Text)
 local currentJobId = getSetting(SETTINGS.LAST_JOB_ID, nil)
@@ -414,8 +416,8 @@ local function updateStatePanel(assetPayload)
 end
 
 local function clearFeed()
-	for _, child in ipairs(feedContent:GetChildren()) do
-		if not child:IsA("UIListLayout") then
+	for _, child in ipairs(feedFrame:GetChildren()) do
+		if not child:IsA("UIListLayout") and not child:IsA("UICorner") and not child:IsA("UIPadding") then
 			child:Destroy()
 		end
 	end
@@ -428,7 +430,7 @@ local function createFeedItem(item)
 	frame.BorderSizePixel = 0
 	frame.AutomaticSize = Enum.AutomaticSize.Y
 	frame.Size = UDim2.new(1, 0, 0, 0)
-	frame.Parent = feedContent
+	frame.Parent = feedFrame
 	createCorner(frame, 8)
 	createPadding(frame, 10, 10, 8, 8)
 
@@ -531,9 +533,19 @@ local function renderFeed(chatPayload, statusPayload)
 	end
 
 	task.defer(function()
-		feedFrame.CanvasPosition = Vector2.new(0, math.max(0, feedContent.AbsoluteSize.Y))
+		local contentHeight = feedLayout.AbsoluteContentSize.Y + 12
+		local maxOffset = math.max(0, contentHeight - feedFrame.AbsoluteSize.Y)
+		feedFrame.CanvasPosition = Vector2.new(0, maxOffset)
 	end)
 end
+
+rootLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+	root.CanvasSize = UDim2.new(0, 0, 0, rootLayout.AbsoluteContentSize.Y + 24)
+end)
+
+feedLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+	feedFrame.CanvasSize = UDim2.new(0, 0, 0, feedLayout.AbsoluteContentSize.Y + 12)
+end)
 
 local function saveBaseUrl()
 	currentBaseUrl = normalizeBaseUrl(urlBox.Text)
